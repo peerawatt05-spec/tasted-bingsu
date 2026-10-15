@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ระบบจัดการสต๊อก - Taste D Bingsu</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style type="text/tailwindcss">
+  @layer components {
+    .inp { @apply w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-sm text-zinc-100 focus:outline-none focus:border-red-600; }
+    .lbl { @apply block text-xs font-medium text-zinc-400 mb-1.5; }
+    .card { @apply bg-zinc-900/90 border border-zinc-800 rounded-2xl p-5 shadow-2xl; }
+    .th { @apply p-3 text-xs; }
+  }
+</style>
+<style>
+  :root { color-scheme: dark; box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body { font-family: 'Prompt', 'Noto Sans Thai', sans-serif; background: #09090b; }
+  [x-cloak] { display: none !important; }
+  #pdf-stage { position: fixed; left: -9999px; top: 0; width: 720px; background: #fff; color: #111827; font-family: 'Prompt', sans-serif; }
+</style>
+</head>
+<body class="text-zinc-100 min-h-screen" x-data="bingsu()" x-init="init()">
+
+<header class="bg-zinc-900 border-b border-red-900/50 sticky top-[env(safe-area-inset-top,0px)] z-40">
+  <div class="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center gap-2">
+    <div class="flex items-center gap-3">
+      <div class="bg-gradient-to-br from-red-600 to-red-800 w-10 h-10 rounded-xl flex items-center justify-center text-xl">🍧</div>
+      <div>
+        <h1 class="text-base font-extrabold tracking-wider text-red-500 uppercase">Taste D Bingsu</h1>
+        <p class="text-[11px] text-zinc-400">ระบบคลังสินค้า & ใบเบิกจ่าย</p>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <button @click="tab='shop'" :class="tab==='shop' ? 'bg-red-600 font-bold' : 'bg-zinc-800 text-zinc-300'" class="px-3 py-2 rounded-xl text-xs sm:text-sm">🛒 หน้าร้าน</button>
+      <button @click="openAdmin()" :class="tab==='admin' ? 'bg-red-600 font-bold' : 'bg-zinc-800 text-zinc-300'" class="px-3 py-2 rounded-xl text-xs sm:text-sm">🔐 หลังบ้าน</button>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-6xl mx-auto px-4 py-6">
+
+<!-- ===== SHOP ===== -->
+<section x-show="tab==='shop'" class="space-y-6">
+  <div class="card">
+    <div class="border-b border-zinc-800 pb-3 mb-4 flex justify-between items-center">
+      <div>
+        <h2 class="text-lg font-bold text-red-500">📝 บันทึกเบิก/เติมสต๊อก (หลายรายการในบิลเดียว)</h2>
+        <p class="text-xs text-zinc-400">เพิ่มสินค้าลงบิล แล้วกดออกใบเบิกครั้งเดียว</p>
+      </div>
+      <span class="bg-red-950/80 text-red-400 border border-red-900 text-xs px-3 py-1.5 rounded-xl hidden sm:inline-block">👤 ผู้อนุมัติ: นายโชคชัย อิ่นคำ</span>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 bg-zinc-950 p-4 rounded-xl border border-zinc-800">
+      <div><label class="lbl">ชื่อผู้ขอเบิก *</label><input class="inp" x-model="head.staff" placeholder="เช่น น้องส้ม (กะเช้า)"></div>
+      <div><label class="lbl">ประเภทรายการ *</label>
+        <select class="inp" x-model="head.type">
+          <option value="Withdraw">เบิกสินค้าออก (ใช้หน้าร้าน)</option>
+          <option value="Restock">เติมสินค้าเข้าสต๊อก</option>
+        </select></div>
+      <div><label class="lbl">วันที่ *</label><input type="date" class="inp" x-model="head.date"></div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end bg-zinc-950 p-4 rounded-xl border border-zinc-800 mb-4">
+      <div class="md:col-span-5"><label class="lbl">สินค้า *</label>
+        <select class="inp" x-model="item.code">
+          <option value="">-- เลือกสินค้า --</option>
+          <template x-for="p in products" :key="p.code">
+            <option :value="p.code" x-text="p.code+' : '+p.name+' (เหลือ '+p.stock+' '+p.unit+')'"></option>
+          </template>
+        </select></div>
+      <div class="md:col-span-2"><label class="lbl">จำนวน *</label><input type="number" min="1" class="inp text-center" x-model="item.qty"></div>
+      <div class="md:col-span-3"><label class="lbl">หมายเหตุ</label><input class="inp" x-model="item.note" placeholder="(ถ้ามี)"></div>
+      <div class="md:col-span-2"><button @click="addToCart()" class="w-full bg-zinc-800 hover:bg-zinc-700 font-bold py-2 rounded-xl text-xs border border-zinc-700">➕ เพิ่มลงบิล</button></div>
+    </div>
+
+    <h3 class="text-sm font-bold text-zinc-300 mb-2">🛒 รายการในบิลนี้ (<span x-text="cart.length"></span>)</h3>
+    <div class="overflow-x-auto rounded-xl border border-zinc-800 mb-4">
+      <table class="w-full text-left text-xs text-zinc-300">
+        <thead class="bg-zinc-950 text-zinc-400"><tr><th class="th">รหัส</th><th class="th">ชื่อสินค้า</th><th class="th text-center">จำนวน</th><th class="th">หมายเหตุ</th><th class="th text-center">จัดการ</th></tr></thead>
+        <tbody class="divide-y divide-zinc-800">
+          <template x-for="(c,i) in cart" :key="c.code">
+            <tr>
+              <td class="p-2.5 font-mono text-red-400 font-bold" x-text="c.code"></td>
+              <td class="p-2.5" x-text="c.productName"></td>
+              <td class="p-2.5 text-center font-bold" x-text="c.qty+' '+c.unit"></td>
+              <td class="p-2.5 text-zinc-400" x-text="c.note"></td>
+              <td class="p-2.5 text-center"><button @click="cart.splice(i,1)" class="text-red-400 px-2 py-1 bg-red-950/60 rounded border border-red-900">ลบ</button></td>
+            </tr>
+          </template>
+          <tr x-show="!cart.length"><td colspan="5" class="p-6 text-center text-zinc-500">ยังไม่มีสินค้าในบิล</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <button @click="submitBill()" :disabled="!cart.length" class="w-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 disabled:opacity-50 font-bold py-3.5 rounded-xl">✅ ยืนยันบันทึก & ออกใบเบิก PDF</button>
+  </div>
+
+  <div class="card">
+    <h3 class="text-lg font-bold text-zinc-200 mb-3">📋 ประวัติบิลทั้งหมด</h3>
+    <div class="overflow-x-auto rounded-xl border border-zinc-800">
+      <table class="w-full text-left text-sm text-zinc-300">
+        <thead class="bg-zinc-950 text-zinc-400"><tr><th class="th">เลขที่บิล / วันที่</th><th class="th">ผู้ขอเบิก</th><th class="th">ประเภท</th><th class="th text-center">รายการ</th><th class="th text-center">PDF</th></tr></thead>
+        <tbody class="divide-y divide-zinc-800">
+          <template x-for="b in batches" :key="b.id">
+            <tr class="hover:bg-zinc-800/40">
+              <td class="p-3"><p class="font-mono text-xs font-bold text-red-400" x-text="b.id"></p><p class="text-[10px] text-zinc-500" x-text="b.date"></p></td>
+              <td class="p-3" x-text="b.staff"></td>
+              <td class="p-3"><span :class="b.type==='Withdraw' ? 'bg-red-950 text-red-400 border-red-800' : 'bg-emerald-950 text-emerald-400 border-emerald-800'" class="px-2.5 py-1 rounded-md text-[11px] font-bold border" x-text="b.type==='Withdraw' ? 'เบิกออก' : 'เติมสต๊อก'"></span></td>
+              <td class="p-3 text-center font-bold" x-text="b.items.length"></td>
+              <td class="p-3 text-center"><button @click="makePDF(b)" class="bg-red-950/60 text-red-300 border border-red-800 px-3 py-1.5 rounded-lg text-xs">📥 PDF</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ADMIN ===== -->
+<section x-show="tab==='admin'" x-cloak class="space-y-6">
+  <div class="flex flex-col sm:flex-row justify-between sm:items-center bg-zinc-900 border border-zinc-800 p-4 rounded-2xl gap-3">
+    <div><h2 class="text-lg font-bold text-red-500">⚙️ จัดการสต๊อกหลังบ้าน</h2><p class="text-xs text-zinc-400">แก้ไขสินค้า ปรับสต๊อก และส่งออก Excel</p></div>
+    <div class="flex gap-2">
+      <button @click="exportXlsx()" class="bg-emerald-950 text-emerald-300 border border-emerald-800 text-xs px-3.5 py-2 rounded-xl">📊 ส่งออก Excel</button>
+      <button @click="openProduct()" class="bg-red-600 text-xs px-3.5 py-2 rounded-xl font-bold">➕ เพิ่มสินค้า</button>
+    </div>
+  </div>
+  <div class="card overflow-x-auto">
+    <table class="w-full text-left text-sm text-zinc-300">
+      <thead class="bg-zinc-950 text-zinc-400"><tr><th class="th">สินค้า</th><th class="th">รหัส</th><th class="th">หมวดหมู่</th><th class="th text-center">คงเหลือ</th><th class="th text-center">เตือนต่ำกว่า</th><th class="th text-center">ปรับด่วน</th><th class="th text-center">จัดการ</th></tr></thead>
+      <tbody class="divide-y divide-zinc-800">
+        <template x-for="p in products" :key="p.code">
+          <tr class="hover:bg-zinc-800/40">
+            <td class="p-3"><span class="mr-2">🍧</span><b x-text="p.name"></b> <span class="text-[11px] text-zinc-500" x-text="'('+p.unit+')'"></span></td>
+            <td class="p-3 font-mono font-bold text-red-400" x-text="p.code"></td>
+            <td class="p-3 text-xs" x-text="p.category"></td>
+            <td class="p-3 text-center"><span :class="p.stock<=p.minStock ? 'text-red-400 font-extrabold bg-red-950 px-2.5 py-1 rounded-lg border border-red-800' : 'font-bold'" x-text="p.stock+' '+p.unit"></span></td>
+            <td class="p-3 text-center text-xs text-zinc-400" x-text="p.minStock"></td>
+            <td class="p-3 text-center whitespace-nowrap">
+              <button @click="adjust(p,-1)" class="w-7 h-7 bg-zinc-800 rounded font-bold">-</button>
+              <span class="inline-block w-10 text-center font-mono text-xs" x-text="p.stock"></span>
+              <button @click="adjust(p,1)" class="w-7 h-7 bg-zinc-800 rounded font-bold">+</button>
+            </td>
+            <td class="p-3 text-center whitespace-nowrap">
+              <button @click="openProduct(p)" class="bg-zinc-800 border border-zinc-700 px-2.5 py-1.5 rounded-lg text-xs">✏️ แก้ไข</button>
+              <button @click="delProduct(p)" class="bg-red-950/60 text-red-300 border border-red-900 px-2.5 py-1.5 rounded-lg text-xs">🗑️ ลบ</button>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+</section>
+</main>
+
+<!-- Admin login modal -->
+<div x-show="showAuth" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80">
+  <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-sm w-full space-y-4">
+    <div class="text-center"><div class="text-3xl mb-1">🔒</div><h3 class="text-lg font-bold">เข้าสู่ระบบหลังบ้าน</h3></div>
+    <input type="password" x-model="pw" @keydown.enter="verify()" placeholder="รหัสผ่าน" class="inp text-center text-lg tracking-widest">
+    <div class="flex gap-2">
+      <button @click="showAuth=false" class="w-1/2 bg-zinc-800 py-2.5 rounded-xl text-xs">ยกเลิก</button>
+      <button @click="verify()" class="w-1/2 bg-red-600 py-2.5 rounded-xl text-xs font-bold">ตกลง</button>
+    </div>
+  </div>
+</div>
+
+<!-- Product modal -->
+<div x-show="showProd" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80">
+  <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-md w-full space-y-3">
+    <div class="flex justify-between border-b border-zinc-800 pb-3"><h3 class="font-bold text-red-500" x-text="edit ? '✏️ แก้ไขสินค้า' : '➕ เพิ่มสินค้าใหม่'"></h3><button @click="showProd=false">✕</button></div>
+    <div><label class="lbl">รหัสสินค้า *</label><input class="inp font-mono uppercase disabled:opacity-50" x-model="pf.code" :disabled="edit"></div>
+    <div><label class="lbl">ชื่อสินค้า *</label><input class="inp" x-model="pf.name"></div>
+    <div class="grid grid-cols-2 gap-3">
+      <div><label class="lbl">หมวดหมู่</label>
+        <select class="inp" x-model="pf.category"><option>วัตถุดิบฐาน</option><option>ท็อปปิ้ง</option><option>ซอส/น้ำหวาน</option><option>บรรจุภัณฑ์</option></select></div>
+      <div><label class="lbl">หน่วยนับ</label><input class="inp" x-model="pf.unit"></div>
+      <div><label class="lbl">สต๊อกปัจจุบัน *</label><input type="number" min="0" class="inp" x-model.number="pf.stock"></div>
+      <div><label class="lbl">เตือนต่ำกว่า</label><input type="number" min="0" class="inp" x-model.number="pf.minStock"></div>
+    </div>
+    <div class="flex gap-2 pt-2">
+      <button @click="showProd=false" class="w-1/2 bg-zinc-800 py-2.5 rounded-xl text-xs">ยกเลิก</button>
+      <button @click="saveProduct()" class="w-1/2 bg-red-600 py-2.5 rounded-xl text-xs font-bold">บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<!-- PDF template (offscreen so html2canvas can render it) -->
+<div id="pdf-stage"><div id="pdf-content" style="padding:32px"></div></div>
+
+<script>
+const DEFAULT_PRODUCTS = [
+  { code:'B001', name:'เบสเกล็ดหิมะนมสด Taste D', category:'วัตถุดิบฐาน', stock:20, minStock:5, unit:'แกลลอน' },
+  { code:'B002', name:'เบสเกล็ดหิมะชาไทยเข้มข้น', category:'วัตถุดิบฐาน', stock:12, minStock:3, unit:'แกลลอน' },
+  { code:'T001', name:'เนื้อมะม่วงน้ำดอกไม้สุก', category:'ท็อปปิ้ง', stock:15, minStock:4, unit:'กก.' },
+  { code:'T002', name:'สตรอว์เบอร์รีเกาหลีสด', category:'ท็อปปิ้ง', stock:8, minStock:3, unit:'กก.' },
+  { code:'P001', name:'ถ้วยบิงซูขนาดกลาง 500ml', category:'บรรจุภัณฑ์', stock:150, minStock:30, unit:'ใบ' }
+];
+const APPROVER = 'นายโชคชัย อิ่นคำ';
+const today = () => new Date().toISOString().slice(0,10);
+const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
+const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+
+function bingsu() {
+  return {
+    tab:'shop', showAuth:false, pw:'', showProd:false, edit:false,
+    head:{ staff:'', type:'Withdraw', date:today() },
+    item:{ code:'', qty:1, note:'' },
+    cart:[], products:[], batches:[],
+    pf:{ code:'', name:'', category:'วัตถุดิบฐาน', unit:'ชิ้น', stock:0, minStock:5 },
+
+    init() {
+      this.products = load('tasted_products', DEFAULT_PRODUCTS);
+      this.batches = load('tasted_batches', []);
+      this.$watch('products', v => save('tasted_products', v));
+      this.$watch('batches', v => save('tasted_batches', v));
+    },
+
+    inCart(code) { const c = this.cart.find(i => i.code === code); return c ? c.qty : 0; },
+
+    addToCart() {
+      const p = this.products.find(x => x.code === this.item.code);
+      const q = parseInt(this.item.qty);
+      if (!p) return alert('❌ กรุณาเลือกสินค้า');
+      if (isNaN(q) || q <= 0) return alert('❌ จำนวนไม่ถูกต้อง');
+      if (this.head.type === 'Withdraw' && this.inCart(p.code) + q > p.stock)
+        return alert(`❌ สต๊อกไม่พอ! เหลือ ${p.stock} ${p.unit} (ในบิลแล้ว ${this.inCart(p.code)})`);
+      const ex = this.cart.find(i => i.code === p.code);
+      if (ex) ex.qty += q;
+      else this.cart.push({ code:p.code, productName:p.name, unit:p.unit, qty:q, note:this.item.note || '-' });
+      this.item = { code:'', qty:1, note:'' };
+    },
+
+    submitBill() {
+      if (!this.head.staff.trim()) return alert('❌ กรุณากรอกชื่อผู้ขอเบิก');
+      if (this.head.type === 'Withdraw') {
+        for (const c of this.cart) {
+          const p = this.products.find(x => x.code === c.code);
+          if (!p || p.stock < c.qty) return alert(`❌ สต๊อก "${c.productName}" ไม่พอแล้ว กรุณาลบหรือแก้รายการ`);
+        }
+      }
+      for (const c of this.cart) {
+        const p = this.products.find(x => x.code === c.code);
+        if (p) p.stock += this.head.type === 'Withdraw' ? -c.qty : c.qty;
+      }
+      const bill = {
+        id: 'REQ-' + this.head.date.replace(/-/g,'') + '-' + Math.floor(100 + Math.random()*900),
+        staff: this.head.staff.trim(), type: this.head.type, date: this.head.date,
+        approver: APPROVER, items: JSON.parse(JSON.stringify(this.cart))
+      };
+      this.batches.unshift(bill);
+      this.cart = [];
+      this.makePDF(bill);
+    },
+
+    openAdmin() { if (this.tab === 'admin') return; this.pw = ''; this.showAuth = true; },
+    verify() {
+      if (this.pw === '12345678') { this.showAuth = false; this.tab = 'admin'; }
+      else alert('❌ รหัสผ่านไม่ถูกต้อง');
+    },
+
+    openProduct(p) {
+      this.edit = !!p;
+      this.pf = p ? { ...p } : { code:'', name:'', category:'วัตถุดิบฐาน', unit:'ชิ้น', stock:0, minStock:5 };
+      this.showProd = true;
+    },
+    saveProduct() {
+      const f = { ...this.pf, code: this.pf.code.trim().toUpperCase(), stock: +this.pf.stock || 0, minStock: +this.pf.minStock || 0 };
+      if (!f.code || !f.name.trim()) return alert('❌ กรอกรหัสและชื่อสินค้า');
+      if (this.edit) {
+        const i = this.products.findIndex(p => p.code === f.code);
+        if (i > -1) this.products[i] = f;
+      } else {
+        if (this.products.some(p => p.code === f.code)) return alert('❌ รหัสสินค้านี้มีอยู่แล้ว');
+        this.products.push(f);
+      }
+      this.showProd = false;
+    },
+    delProduct(p) { if (confirm(`ลบ "${p.name}" หรือไม่?`)) this.products = this.products.filter(x => x.code !== p.code); },
+    adjust(p, d) { p.stock = Math.max(0, p.stock + d); },
+
+    makePDF(b) {
+      const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+      const w = b.type === 'Withdraw';
+      const rows = b.items.map((it, i) => `<tr style="border-bottom:1px solid #e5e7eb">
+        <td style="padding:8px;text-align:center">${i+1}</td>
+        <td style="padding:8px;font-family:monospace;font-weight:700">${esc(it.code)}</td>
+        <td style="padding:8px;font-weight:600">${esc(it.productName)}</td>
+        <td style="padding:8px;text-align:center;font-weight:800;color:#dc2626">${it.qty} ${esc(it.unit)}</td>
+        <td style="padding:8px;color:#6b7280">${esc(it.note)}</td></tr>`).join('');
+      document.getElementById('pdf-content').innerHTML = `
+        <div style="display:flex;justify-content:space-between;border-bottom:2px solid #dc2626;padding-bottom:12px;margin-bottom:20px">
+          <div><div style="font-size:24px;font-weight:900;color:#dc2626">TASTE D BINGSU</div>
+          <div style="font-size:12px;font-weight:700">ร้านเทสดีบิงซู (สาขาหน้า มช.)</div>
+          <div style="font-size:11px;color:#6b7280">เอกสารใบขอเบิก / เติมสต๊อกสินค้า (รวมรายการ)</div></div>
+          <div style="text-align:right;font-size:11px;color:#6b7280">
+            <div style="display:inline-block;background:#fee2e2;color:#b91c1c;font-weight:700;padding:3px 12px;border-radius:99px;margin-bottom:4px">${w ? 'ใบเบิกสต๊อกสินค้า' : 'ใบเติมสต๊อกสินค้า'}</div>
+            <div>เลขที่บิล: <b style="font-family:monospace;color:#111">${esc(b.id)}</b></div>
+            <div>วันที่: <b style="color:#111">${esc(b.date)}</b></div></div></div>
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:12px;display:flex;gap:40px;font-size:12px;margin-bottom:20px">
+          <div><div style="color:#6b7280">ผู้ทำรายการ / ขอเบิก</div><b style="font-size:14px">${esc(b.staff)}</b></div>
+          <div><div style="color:#6b7280">ประเภทรายการ</div><b style="font-size:14px;color:#dc2626">${w ? 'เบิกสินค้าออก' : 'เติมสินค้าเข้าคลัง'}</b></div></div>
+        <table style="width:100%;font-size:12px;border-collapse:collapse;margin-bottom:24px">
+          <thead><tr style="background:#f3f4f6;border-top:1px solid #d1d5db;border-bottom:1px solid #d1d5db;text-align:left">
+            <th style="padding:8px">ลำดับ</th><th style="padding:8px">รหัส</th><th style="padding:8px">รายการ</th><th style="padding:8px;text-align:center">จำนวน</th><th style="padding:8px">หมายเหตุ</th></tr></thead>
+          <tbody>${rows}</tbody></table>
+        <div style="display:flex;gap:40px;text-align:center;font-size:12px;margin-top:48px;border-top:1px solid #d1d5db;padding-top:20px">
+          <div style="flex:1">ลงชื่อ..............................................<br><span style="font-size:11px;color:#6b7280">(ผู้ขอเบิก / ทำรายการ)</span><br><b style="display:block;margin-top:20px">${esc(b.staff)}</b></div>
+          <div style="flex:1">ลงชื่อ..............................................<br><span style="font-size:11px;color:#6b7280">(ผู้อนุมัติการเบิกจ่าย)</span><br><b style="display:block;margin-top:20px">${esc(b.approver || APPROVER)}</b>
+            <span style="font-size:10px;color:#6b7280">ผู้จัดการร้าน Taste D Bingsu</span></div></div>
+        <div style="text-align:center;font-size:10px;color:#9ca3af;margin-top:28px">Taste D Bingsu Inventory System • เอกสารออกโดยระบบอัตโนมัติ</div>`;
+      html2pdf().set({
+        margin: 0.4, filename: `ใบเบิกสต๊อก_${b.id}.pdf`,
+        image: { type:'jpeg', quality:0.98 }, html2canvas: { scale:2, backgroundColor:'#ffffff' },
+        jsPDF: { unit:'in', format:'a4', orientation:'portrait' }
+      }).from(document.getElementById('pdf-stage')).save();
+    },
+
+    exportXlsx() {
+      const data = [['รหัสสินค้า','ชื่อสินค้า','หมวดหมู่','คงเหลือ','เตือนสต๊อกต่ำ','หน่วยนับ'],
+        ...this.products.map(p => [p.code, p.name, p.category, p.stock, p.minStock, p.unit])];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data), 'Stock_TasteD');
+      XLSX.writeFile(wb, 'Stock_TasteD_Bingsu.xlsx');
+    }
+  };
+}
+</script>
+</body>
+</html>
